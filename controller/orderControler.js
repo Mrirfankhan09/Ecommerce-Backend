@@ -6,40 +6,46 @@ import Address from '../models/Address.js';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
 // import PDFDocument from 'pdfkit';
+
 import dotenv from 'dotenv';
 dotenv.config();
 
-// ✅ Razorpay Setup
+
 const razorpay = new Razorpay({
-  key_id: 'rzp_test_CqbkBvwwlgejeB',
-  key_secret: 'rnbnKZiZNMSAEsvH8hDjbCFo',
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET
 });
 
-// ✅ Place Order
+
+// 1️⃣ Create order
 export const createOrder = async (req, res) => {
   try {
-    const { addressId, paymentMethod, amount } = req.body;
-    console.log(req.body)
-    const userId = req.userId;
+    const { addressId, paymentMethod } = req.body;
+    const userId = req.userId; // from auth middleware
 
+    // Fetch cart
     const cart = await Cart.findOne({ user: userId });
-    if (!cart || cart.cartItems.length === 0) return res.status(400).json({ message: 'Cart is empty' });
+    if (!cart || cart.cartItems.length === 0) {
+      return res.status(400).json({ message: "Cart is empty" });
+    }
 
+    // Validate address
     const address = await Address.findById(addressId);
-    if (!address || address.user.toString() !== userId) return res.status(401).json({ message: 'Invalid address' });
+    if (!address || address.user.toString() !== userId) {
+      return res.status(401).json({ message: "Invalid address" });
+    }
 
+    // Calculate prices
     let itemsPrice = 0;
-    cart.cartItems.forEach(item => itemsPrice += item.price * item.quantity);
-
+    cart.cartItems.forEach((item) => {
+      itemsPrice += item.price * item.quantity;
+    });
     const taxPrice = Math.round(itemsPrice * 0.05);
     const shippingPrice = itemsPrice > 1000 ? 0 : 50;
     const totalPrice = itemsPrice + taxPrice + shippingPrice;
-    console.log(cart.cartItems[0].image[0].url, 'cart items in createOrder');
 
-    // console.log(obj,typeof obj, 'cart items in createOrder image');
-
-
-    const orderItems = cart.cartItems.map(item => ({
+    // Prepare order items
+    const orderItems = cart.cartItems.map((item) => ({
       name: item.name,
       quantity: item.quantity,
       image: item.image[0].url,
@@ -47,6 +53,7 @@ export const createOrder = async (req, res) => {
       product: item.product,
     }));
 
+    // Shipping details
     const shippingAddress = {
       street: address.street,
       city: address.city,
@@ -55,6 +62,17 @@ export const createOrder = async (req, res) => {
       country: address.country,
     };
 
+    // Create Razorpay order (for online payment)
+    let razorpayOrder;
+    if (paymentMethod === "razorpay") {
+      razorpayOrder = await razorpay.orders.create({
+        amount: totalPrice * 100,
+        currency: "INR",
+        receipt: `receipt_${Date.now()}`,
+      });
+    }
+
+    // Save order in DB
     const order = await Order.create({
       user: userId,
       orderItems,
@@ -64,35 +82,61 @@ export const createOrder = async (req, res) => {
       taxPrice,
       shippingPrice,
       totalPrice,
+      isPaid: false,
     });
 
+    // Clear cart
     await Cart.findOneAndDelete({ user: userId });
-    res.status(201).json({ success: true, order });
+
+    res.status(201).json({
+      success: true,
+      orderId: order._id,
+      razorpayOrderId: razorpayOrder?.id || null,
+      amount: razorpayOrder?.amount || totalPrice * 100,
+      currency: "INR",
+      key: process.env.RAZORPAY_KEY_ID,
+    });
   } catch (error) {
-    console.error('Order error:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error("Order creation error:", error);
+    res.status(500).json({ message: "Server error" });
   }
 };
 
-// ✅ Get User Orders
-export const getMyOrders = async (req, res) => {
+// 2️⃣ Verify payment
+export const verifyPayment = async (req, res) => {
   try {
-    console.log(req.userId)
-    const orders = await Order.find({ user: req.userId });
-    res.json(orders);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error' });
-  }
-};
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+      orderId,
+    } = req.body;
 
-// ✅ Get Order by ID
-export const getOrderById = async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id);
-    if (!order || order.user.toString() !== req.userId) return res.status(404).json({ message: 'Not found' });
-    res.json(order);
+    const body = razorpay_order_id + "|" + razorpay_payment_id;
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(body.toString())
+      .digest("hex");
+
+    if (expectedSignature === razorpay_signature) {
+      // Update order as paid
+      await Order.findByIdAndUpdate(orderId, {
+        isPaid: true,
+        paidAt: new Date(),
+        paymentResult: {
+          razorpay_order_id,
+          razorpay_payment_id,
+          razorpay_signature,
+        },
+      });
+
+      return res.json({ success: true, message: "Payment verified" });
+    } else {
+      return res.status(400).json({ success: false, message: "Invalid signature" });
+    }
   } catch (error) {
-    res.status(500).json({ message: 'Server error' });
+    console.error("Payment verification error:", error);
+    res.status(500).json({ message: "Server error" });
   }
 };
 
@@ -114,33 +158,6 @@ export const createPaymentOrder = async (req, res) => {
 };
 
 // ✅ Razorpay Payment Verification
-export const verifyPayment = async (req, res) => {
-  try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, orderId } = req.body;
-    const body = `${razorpay_order_id}|${razorpay_payment_id}`;
-    const expectedSignature = crypto.createHmac('sha256', 'rnbnKZiZNMSAEsvH8hDjbCFo').update(body).digest('hex');
-
-    if (expectedSignature !== razorpay_signature) {
-      return res.status(400).json({ message: 'Invalid signature' });
-    }
-
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ message: 'Order not found' });
-
-    order.isPaid = true;
-    order.paidAt = new Date();
-    order.paymentResult = {
-      id: razorpay_payment_id,
-      status: 'Paid',
-      update_time: new Date().toISOString(),
-      email_address: req.user?.email || '',
-    };
-    await order.save();
-    res.status(200).json({ success: true, order });
-  } catch (error) {
-    res.status(500).json({ message: 'Payment verification failed' });
-  }
-};
 
 // ✅ Invoice Generator (PDF)
 // export const getInvoice = async (req, res) => {

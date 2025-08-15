@@ -33,14 +33,19 @@ export const registerUser = async (req, res) => {
     text: `Hi ${name},
 
 Thank you for registering with ShopSmart!
+
 Here’s your One-Time Password (OTP) to verify your account:
 ${otp}
 
+This OTP will expire in 10 minutes.
+
+If you did not sign up for ShopSmart, please ignore this email.
 
 Regards,
 ShopSmart Team
 `,
   });
+
 
   res.status(201).json({ message: 'OTP sent to email for verification', success: ok });
 };
