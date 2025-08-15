@@ -13,7 +13,7 @@ import orderRoute from './routes/orderRoutes.js';
 dotenv.config();
 
 const app = express();
-
+console.log('App initialized');
 app.use(cors({
   origin: ['http://localhost:5173', 'http://localhost:5174'],
   credentials: true
