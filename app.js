@@ -28,5 +28,8 @@ app.use('/api/products', productRoute);
 app.use('/api/cart', cartRoute);
 app.use('/api/address', addressRoute);
 app.use('/api/orders', orderRoute);
+app.use('/', (req, res) => {
+  res.send('Welcome to ShopSmart API');
+});
 
 export default app;
