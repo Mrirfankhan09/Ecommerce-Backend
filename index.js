@@ -16,7 +16,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.use(cors({
-  origin: ['http://localhost:5173','http://localhost:5174','https://dukaansmart.netlify.app'], // your frontend URL
+  origin: ['http://localhost:5173/', 'http://localhost:5174/', 'https://dukaansmart.netlify.app/','https://shopsmartadminpanel.netlify.app/'], // your frontend URL
   credentials: true
 }));
 app.use(bodyParser.json());
@@ -25,11 +25,11 @@ app.use(cookieParser());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use('/api/users', userRoute);
 app.use('/api/products', productRoute);
-app.use('/api/cart',cartRoute)
-app.use('/api/address',addressRoute)
-app.use('/api/order',orderRoute);
+app.use('/api/cart', cartRoute)
+app.use('/api/address', addressRoute)
+app.use('/api/order', orderRoute);
 app.use('/', (req, res) => {
-  res.send('Welcome to ShopSmart API');   
+  res.send('Welcome to ShopSmart API');
 })
 
 
