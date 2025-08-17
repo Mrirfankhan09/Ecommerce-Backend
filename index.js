@@ -16,7 +16,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.use(cors({
-  origin: ['http://localhost:5173/', 'http://localhost:5174/', 'https://dukaansmart.netlify.app/','https://shopsmartadminpanel.netlify.app/'], // your frontend URL
+  origin: ['http://localhost:5173', 'http://localhost:5174', 'https://dukaansmart.netlify.app','https://shopsmartadminpanel.netlify.app'], // your frontend URL
   credentials: true
 }));
 app.use(bodyParser.json());
