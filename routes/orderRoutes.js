@@ -14,10 +14,10 @@ import auth from '../middleware/auth.js';
 
 const router = express.Router();
 
+router.get('/getallorders',auth,isAdmin, getallOrders)
 router.get('/ordercount', orderCount); // Get order count
 router.get('/totalrevenue', totalrevenue);
 router.post('/createpayment',createPaymentOrder)
-router.get('/getallorders', getallOrders)
 router.post('/createorder', auth, createOrder); // Create order + Razorpay
 router.post('/verify', auth, verifyPayment); // Verify payment
 // router.get('/', auth, getMyOrders); // Get all user orders
