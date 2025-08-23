@@ -3,6 +3,7 @@ import User from '../models/User.js';
 import Order from '../models/Order.js';
 import Cart from '../models/Cart.js';
 import Address from '../models/Address.js';
+import Product from '../models/Product.js';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
 // import PDFDocument from 'pdfkit';
@@ -33,6 +34,19 @@ export const createOrder = async (req, res) => {
     const address = await Address.findById(addressId);
     if (!address || address.user.toString() !== userId) {
       return res.status(401).json({ message: "Invalid address" });
+    }
+
+    // Check stock availability for all items before creating order
+    for (const item of cart.cartItems) {
+      const product = await Product.findById(item.product._id);
+      if (!product) {
+        return res.status(404).json({ message: `Product ${item.name} not found` });
+      }
+      if (product.stock < item.quantity) {
+        return res.status(400).json({ 
+          message: `Insufficient stock for ${item.name}. Available: ${product.stock}, Requested: ${item.quantity}` 
+        });
+      }
     }
 
     // Calculate prices
@@ -72,6 +86,14 @@ export const createOrder = async (req, res) => {
         currency: "INR",
         receipt: `receipt_${Date.now()}`,
       });
+    }
+
+    // Update product stock - reduce stock for all items
+    for (const item of cart.cartItems) {
+      await Product.findByIdAndUpdate(
+        item.product._id,
+        { $inc: { stock: -item.quantity } }
+      );
     }
 
     // Save order in DB
@@ -249,6 +271,14 @@ export const cancelOrder = async (req, res) => {
       return res.status(400).json({ message: "Order cannot be cancelled" });
     }
 
+    // Restore product stock - add back the quantities
+    for (const item of order.orderItems) {
+      await Product.findByIdAndUpdate(
+        item.product,
+        { $inc: { stock: item.quantity } }
+      );
+    }
+
     // Update order status
     order.status = 'cancelled';
     await order.save();
@@ -349,6 +379,16 @@ export const updateOrderStatus = async (req, res) => {
     const order = await Order.findById(id);
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
+    }
+
+    // If order is being cancelled, restore stock
+    if (status === 'cancelled' && order.status !== 'cancelled') {
+      for (const item of order.orderItems) {
+        await Product.findByIdAndUpdate(
+          item.product,
+          { $inc: { stock: item.quantity } }
+        );
+      }
     }
 
     order.status = status;

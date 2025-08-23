@@ -4,8 +4,8 @@ import Order from '../models/Order.js'
 export const createProduct = async (req, res) => {
   try {
     console.log(req.body)
-    const { name, description, price, category, brand } = req.body;
-    console.log(name, description, price, category, brand)
+    const { name, description, price, category, brand, stock } = req.body;
+    console.log(name, description, price, category, brand, stock)
 
     let images = [];
 
@@ -23,7 +23,7 @@ export const createProduct = async (req, res) => {
       category,
       brand,
       images,
-      stock: 0,
+      stock: stock || 0,
     });
 
     await product.save();
@@ -58,9 +58,68 @@ export const getProductById = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
+// Check stock availability for a product
+export const checkStock = async (req, res) => {
+  try {
+    const { productId, quantity } = req.body;
+    
+    if (!productId || !quantity) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Product ID and quantity are required' 
+      });
+    }
+
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Product not found' 
+      });
+    }
+
+    const isAvailable = product.stock >= quantity;
+    
+    res.status(200).json({
+      success: true,
+      isAvailable,
+      availableStock: product.stock,
+      requestedQuantity: quantity,
+      message: isAvailable 
+        ? 'Stock available' 
+        : `Only ${product.stock} items available in stock`
+    });
+  } catch (error) {
+    console.error('Error checking stock:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// Get low stock products (for admin)
+export const getLowStockProducts = async (req, res) => {
+  try {
+    const threshold = parseInt(req.query.threshold) || 10;
+    
+    const products = await Product.find({ stock: { $lte: threshold } })
+      .select('name stock category price')
+      .sort({ stock: 1 });
+
+    res.status(200).json({
+      success: true,
+      products,
+      threshold,
+      count: products.length
+    });
+  } catch (error) {
+    console.error('Error fetching low stock products:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 export const updateProduct = async (req, res) => {
   try {
-    const { name, description, price, category, brand } = req.body;
+    const { name, description, price, category, brand, stock } = req.body;
     const product = await Product.findById(req.params.id);
 
     if (!product) {
@@ -72,6 +131,7 @@ export const updateProduct = async (req, res) => {
     product.price = price || product.price;
     product.category = category || product.category;
     product.brand = brand || product.brand;
+    product.stock = stock !== undefined ? stock : product.stock;
 
     if (req.file && req.file.path) {
       // Delete old image if needed
@@ -100,17 +160,19 @@ export const updateProduct = async (req, res) => {
 export const deleteProduct = async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
+
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
+    // Delete images from Cloudinary if needed
     for (const img of product.images) {
       if (img.public_id) {
         await cloudinary.uploader.destroy(img.public_id);
       }
     }
 
-    await product.deleteOne();
+    await Product.findByIdAndDelete(req.params.id);
     res.status(200).json({ success: true, message: 'Product deleted successfully' });
   } catch (error) {
     console.error('Error deleting product:', error);
@@ -118,10 +180,66 @@ export const deleteProduct = async (req, res) => {
   }
 };
 
+export const searchProducts = async (req, res) => {
+  try {
+    const { query, category, minPrice, maxPrice, sortBy } = req.body;
 
+    let searchQuery = {};
 
+    // Text search
+    if (query) {
+      searchQuery.$or = [
+        { name: { $regex: query, $options: 'i' } },
+        { description: { $regex: query, $options: 'i' } },
+        { category: { $regex: query, $options: 'i' } },
+      ];
+    }
 
-export const addProductReview = async (req, res) => {
+    // Category filter
+    if (category && category !== 'All') {
+      searchQuery.category = category;
+    }
+
+    // Price range filter
+    if (minPrice || maxPrice) {
+      searchQuery.price = {};
+      if (minPrice) searchQuery.price.$gte = minPrice;
+      if (maxPrice) searchQuery.price.$lte = maxPrice;
+    }
+
+    // Stock filter (only show products with stock > 0)
+    searchQuery.stock = { $gt: 0 };
+
+    let sortOptions = {};
+    if (sortBy) {
+      switch (sortBy) {
+        case 'price-low':
+          sortOptions.price = 1;
+          break;
+        case 'price-high':
+          sortOptions.price = -1;
+          break;
+        case 'name':
+          sortOptions.name = 1;
+          break;
+        case 'newest':
+          sortOptions.createdAt = -1;
+          break;
+        default:
+          sortOptions.createdAt = -1;
+      }
+    }
+
+    const products = await Product.find(searchQuery).sort(sortOptions);
+
+    res.status(200).json({ success: true, products });
+  } catch (error) {
+    console.error('Error searching products:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export const addReview = async (req, res) => {
   try {
     const productId = req.params.id;
     const userId = req.userId;
