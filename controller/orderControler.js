@@ -24,7 +24,7 @@ export const createOrder = async (req, res) => {
     const userId = req.userId; // from auth middleware
 
     // Fetch cart
-    const cart = await Cart.findOne({ user: userId });
+    const cart = await Cart.findOne({ user: userId }).populate('cartItems.product');
     if (!cart || cart.cartItems.length === 0) {
       return res.status(400).json({ message: "Cart is empty" });
     }
@@ -38,28 +38,30 @@ export const createOrder = async (req, res) => {
     // Calculate prices
     let itemsPrice = 0;
     cart.cartItems.forEach((item) => {
-      itemsPrice += item.price * item.quantity;
+      itemsPrice += item.product.price * item.quantity;
     });
     const taxPrice = Math.round(itemsPrice * 0.05);
-    const shippingPrice = itemsPrice > 1000 ? 0 : 50;
+    const shippingPrice = itemsPrice > 1000 ? 0 : 100;
     const totalPrice = itemsPrice + taxPrice + shippingPrice;
 
     // Prepare order items
     const orderItems = cart.cartItems.map((item) => ({
-      name: item.name,
+      name: item.product.name,
       quantity: item.quantity,
-      image: item.image[0].url,
-      price: item.price,
-      product: item.product,
+      image: item.product.images[0]?.url || '',
+      price: item.product.price,
+      product: item.product._id,
     }));
 
     // Shipping details
     const shippingAddress = {
+      fullName: address.fullName,
+      phone: address.phone,
       street: address.street,
       city: address.city,
       state: address.state,
-      zip: address.zip,
-      country: address.country,
+      pincode: address.pincode,
+      country: address.country || 'India',
     };
 
     // Create Razorpay order (for online payment)
@@ -83,6 +85,7 @@ export const createOrder = async (req, res) => {
       shippingPrice,
       totalPrice,
       isPaid: false,
+      status: 'pending'
     });
 
     // Clear cart
@@ -123,7 +126,11 @@ export const verifyPayment = async (req, res) => {
       await Order.findByIdAndUpdate(orderId, {
         isPaid: true,
         paidAt: new Date(),
+        status: 'processing',
         paymentResult: {
+          id: razorpay_payment_id,
+          status: 'completed',
+          update_time: new Date().toISOString(),
           razorpay_order_id,
           razorpay_payment_id,
           razorpay_signature,
@@ -136,6 +143,123 @@ export const verifyPayment = async (req, res) => {
     }
   } catch (error) {
     console.error("Payment verification error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// 3️⃣ Get user orders
+export const getMyOrders = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const orders = await Order.find({ user: userId })
+      .populate('orderItems.product', 'name images price')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      orders: orders.map(order => ({
+        _id: order._id,
+        orderItems: order.orderItems,
+        shippingAddress: order.shippingAddress,
+        paymentMethod: order.paymentMethod,
+        itemsPrice: order.itemsPrice,
+        taxPrice: order.taxPrice,
+        shippingPrice: order.shippingPrice,
+        totalPrice: order.totalPrice,
+        isPaid: order.isPaid,
+        paidAt: order.paidAt,
+        isDelivered: order.isDelivered,
+        deliveredAt: order.deliveredAt,
+        status: order.status,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt
+      }))
+    });
+  } catch (error) {
+    console.error("Error fetching user orders:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// 4️⃣ Get order by ID
+export const getOrderById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.userId;
+
+    const order = await Order.findById(id)
+      .populate('orderItems.product', 'name images price description')
+      .populate('user', 'name email');
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    // Check if user owns this order or is admin
+    if (order.user._id.toString() !== userId && !req.isAdmin) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    res.status(200).json({
+      success: true,
+      order: {
+        _id: order._id,
+        orderItems: order.orderItems,
+        shippingAddress: order.shippingAddress,
+        paymentMethod: order.paymentMethod,
+        itemsPrice: order.itemsPrice,
+        taxPrice: order.taxPrice,
+        shippingPrice: order.shippingPrice,
+        totalPrice: order.totalPrice,
+        isPaid: order.isPaid,
+        paidAt: order.paidAt,
+        isDelivered: order.isDelivered,
+        deliveredAt: order.deliveredAt,
+        status: order.status,
+        paymentResult: order.paymentResult,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching order:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// 5️⃣ Cancel order
+export const cancelOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.userId;
+
+    const order = await Order.findById(id);
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    // Check if user owns this order
+    if (order.user.toString() !== userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // Only allow cancellation of pending orders
+    if (order.status !== 'pending') {
+      return res.status(400).json({ message: "Order cannot be cancelled" });
+    }
+
+    // Update order status
+    order.status = 'cancelled';
+    await order.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Order cancelled successfully",
+      order
+    });
+  } catch (error) {
+    console.error("Error cancelling order:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -201,11 +325,55 @@ export const markAsDelivered = async (req, res) => {
 
     order.isDelivered = true;
     order.deliveredAt = new Date();
+    order.status = 'delivered';
     await order.save();
 
     res.status(200).json({ message: 'Order marked as delivered', order });
   } catch (error) {
     res.status(500).json({ message: 'Failed to update delivery status' });
+  }
+};
+
+// Update order status
+export const updateOrderStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const validStatuses = ['pending', 'processing', 'shipped', 'delivered', 'cancelled'];
+    
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ message: 'Invalid status' });
+    }
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    order.status = status;
+    
+    // Set deliveredAt if status is delivered
+    if (status === 'delivered') {
+      order.isDelivered = true;
+      order.deliveredAt = new Date();
+    }
+    
+    // Set shippedAt if status is shipped
+    if (status === 'shipped') {
+      order.shippedAt = new Date();
+    }
+
+    await order.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Order status updated successfully',
+      order
+    });
+  } catch (error) {
+    console.error('Error updating order status:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -223,11 +391,11 @@ export const getallOrders = async (req, res) => {
       id: order._id,
       customer: order.user?.name || 'Unknown User',
       total: order.totalPrice,
-      status: order.isDelivered
+      status: order.status || (order.isDelivered
         ? 'Delivered'
         : order.isPaid
           ? 'Paid'
-          : 'Pending',
+          : 'Pending'),
       date: order.createdAt.toISOString().split('T')[0], // YYYY-MM-DD
     }));
 

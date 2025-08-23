@@ -9,6 +9,7 @@ import productRoute from './routes/productRoutes.js';
 import cartRoute from './routes/cartRoutes.js';
 import addressRoute from './routes/AddressRoutes.js';
 import orderRoute from './routes/orderRoutes.js';
+import paymentRoute from './routes/paymentRoutes.js';
 
 dotenv.config();
 
@@ -23,11 +24,15 @@ app.use(bodyParser.json());
 app.use(express.json());
 app.use(cookieParser());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// API Routes
 app.use('/api/users', userRoute);
 app.use('/api/products', productRoute);
-app.use('/api/cart', cartRoute)
-app.use('/api/address', addressRoute)
+app.use('/api/cart', cartRoute);
+app.use('/api/address', addressRoute);
 app.use('/api/order', orderRoute);
+app.use('/api/payment', paymentRoute);
+
 app.use('/', (req, res) => {
   res.send('Welcome to ShopSmart API');
 })

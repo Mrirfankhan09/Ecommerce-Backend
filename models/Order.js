@@ -23,24 +23,29 @@ const orderSchema = new mongoose.Schema(
     ],
 
     shippingAddress: {
+      fullName: { type: String, required: true },
+      phone: { type: String, required: true },
       street: { type: String, required: true },
       city: { type: String, required: true },
       state: { type: String, required: true },
-      zip: { type: String, required: true },
-      country: { type: String, required: true },
+      pincode: { type: String, required: true },
+      country: { type: String, default: 'India' },
     },
 
     paymentMethod: {
       type: String,
       required: true,
-      // enum: ['COD', 'Stripe'],
+      enum: ['razorpay', 'cod', 'upi'],
     },
 
     paymentResult: {
-      id: String,        // Stripe transaction ID
-      status: String,
+      id: String,        // Payment transaction ID
+      status: String,    // Payment status
       email_address: String,
       update_time: String,
+      razorpay_order_id: String,
+      razorpay_payment_id: String,
+      razorpay_signature: String,
     },
 
     itemsPrice: {
@@ -62,6 +67,12 @@ const orderSchema = new mongoose.Schema(
       required: true,
     },
 
+    status: {
+      type: String,
+      enum: ['pending', 'processing', 'shipped', 'delivered', 'cancelled'],
+      default: 'pending',
+    },
+
     isPaid: {
       type: Boolean,
       default: false,
@@ -73,6 +84,8 @@ const orderSchema = new mongoose.Schema(
       default: false,
     },
     deliveredAt: Date,
+
+    shippedAt: Date, // New field for shipping timestamp
   },
   {
     timestamps: true,

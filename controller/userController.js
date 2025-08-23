@@ -11,7 +11,18 @@ export const getUserProfile = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    return res.status(200).json(user);
+    return res.status(200).json({
+      success: true,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        isAdmin: user.isAdmin,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
+      }
+    });
   } catch (error) {
     return res.status(500).json({ message: 'Server error' });
   }
@@ -31,12 +42,16 @@ export const updateUserProfile = async (req, res) => {
     user.phone = phone || user.phone;
     await user.save();
     return res.status(200).json({
+      success: true,
       message: 'User profile updated successfully',
       user: {
-        id: user._id,
+        _id: user._id,
         name: user.name,
         email: user.email,
         phone: user.phone,
+        isAdmin: user.isAdmin,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
       },
     });
   } catch (error) {
