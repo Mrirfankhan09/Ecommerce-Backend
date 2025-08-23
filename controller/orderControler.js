@@ -24,7 +24,7 @@ export const createOrder = async (req, res) => {
     const { addressId, paymentMethod } = req.body;
     const userId = req.userId; // from auth middleware
 
-    // Fetch cart
+    // Fetch cart with populated products
     const cart = await Cart.findOne({ user: userId }).populate('cartItems.product');
     if (!cart || cart.cartItems.length === 0) {
       return res.status(400).json({ message: "Cart is empty" });
@@ -52,7 +52,7 @@ export const createOrder = async (req, res) => {
     // Calculate prices
     let itemsPrice = 0;
     cart.cartItems.forEach((item) => {
-      itemsPrice += item.product.price * item.quantity;
+      itemsPrice += item.price * item.quantity;
     });
     const taxPrice = Math.round(itemsPrice * 0.05);
     const shippingPrice = itemsPrice > 1000 ? 0 : 100;
@@ -60,10 +60,10 @@ export const createOrder = async (req, res) => {
 
     // Prepare order items
     const orderItems = cart.cartItems.map((item) => ({
-      name: item.product.name,
+      name: item.name,
       quantity: item.quantity,
-      image: item.product.images[0]?.url || '',
-      price: item.product.price,
+      image: item.image && item.image.length > 0 ? item.image[0].url : '',
+      price: item.price,
       product: item.product._id,
     }));
 
@@ -297,17 +297,50 @@ export const cancelOrder = async (req, res) => {
 // ✅ Razorpay Order
 export const createPaymentOrder = async (req, res) => {
   try {
+    console.log('Creating payment order:', req.body);
+    
     const { amount } = req.body;
+    
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Valid amount is required' 
+      });
+    }
+
+    if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+      console.error('Razorpay credentials not configured');
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Payment gateway not configured' 
+      });
+    }
+
     const options = {
-      amount: amount * 100,
+      amount: Math.round(amount * 100), // Convert to paise and ensure integer
       currency: 'INR',
-      receipt: `rcpt_${Math.floor(Math.random() * 10000)}`,
+      receipt: `rcpt_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
       payment_capture: 1,
     };
+
+    console.log('Razorpay options:', options);
+
     const order = await razorpay.orders.create(options);
-    res.status(201).json({ success: true, order });
+    
+    console.log('Razorpay order created:', order);
+
+    res.status(201).json({ 
+      success: true, 
+      order,
+      key: process.env.RAZORPAY_KEY_ID 
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Payment order creation failed' });
+    console.error('Payment order creation error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Payment order creation failed',
+      error: error.message 
+    });
   }
 };
 
