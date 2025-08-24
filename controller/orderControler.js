@@ -74,18 +74,27 @@ export const createOrder = async (req, res) => {
       street: address.street,
       city: address.city,
       state: address.state,
-      pincode: address.pincode,
+      zip: address.zip,
       country: address.country || 'India',
     };
 
     // Create Razorpay order (for online payment)
     let razorpayOrder;
     if (paymentMethod === "razorpay") {
-      razorpayOrder = await razorpay.orders.create({
-        amount: totalPrice * 100,
-        currency: "INR",
-        receipt: `receipt_${Date.now()}`,
-      });
+      try {
+        razorpayOrder = await razorpay.orders.create({
+          amount: totalPrice * 100,
+          currency: "INR",
+          receipt: `receipt_${Date.now()}`,
+        });
+        console.log('Razorpay order created:', razorpayOrder);
+      } catch (error) {
+        console.error('Razorpay order creation failed:', error);
+        return res.status(500).json({ 
+          success: false,
+          message: "Failed to create payment order" 
+        });
+      }
     }
 
     // Update product stock - reduce stock for all items
